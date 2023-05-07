@@ -12,7 +12,7 @@
 #include <math.h>
 #include <sys/poll.h>
 
-#define MAXLINE 1500
+#define MAXLINE 2000
 
 int PORT;
 int flags;
@@ -33,19 +33,15 @@ int nfds = 0;
 
 typedef struct msg
 {
+    int size;
+    struct sockaddr_in cliaddr;
     char topic[50];
     char content[MAXLINE];
 } msg;
 
-typedef struct mesg
-{
-    int size;
-    msg buffer;
-} mesg;
-
 int msg_count = 0;
 
-mesg messages[100];
+msg messages[100];
 
 void create_bind_udp_client()
 {
@@ -122,12 +118,10 @@ int tcp_client_accept()
 
     /*  Accept an incoming connection from one of the clients */
     client_size = sizeof(client_addr);
-    int accepted = accept(socket_desc, (struct sockaddr *)&client_addr, &client_size);
+    client_sock = accept(socket_desc, (struct sockaddr *)&client_addr, &client_size);
 
-    if (accepted < 0)
-        return 0;
-
-    client_sock = accepted;
+    if (client_sock < 0)
+        return -1;
 
     char id_client[11];
     /* Receive message from clients. Note that we use client_sock, not socket_desc */
@@ -143,7 +137,7 @@ int tcp_client_accept()
     id_client[size_id_client] = '\0';
     printf("New client %s connected from %s:%i.\n", id_client, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
-    return 1;
+    return client_sock;
 }
 
 int main(int argc, char const *argv[])
@@ -225,16 +219,49 @@ int main(int argc, char const *argv[])
                 buffer[n] = '\n';
 
                 messages[msg_count].size = n;
-                memcpy(&messages[msg_count].buffer, buffer, n * sizeof(char));
+                messages[msg_count].cliaddr = client_addr;
+                memcpy(&messages[msg_count].topic, buffer, 50 * sizeof(char));
+                memcpy(&messages[msg_count].content, buffer, n * sizeof(char));
 
-                printf("%d %s\n", msg_count, messages[msg_count].buffer.topic);
+                printf("%d %s\n", msg_count, messages[msg_count].content);
 
                 msg_count++;
             }
         }
         else if ((pfds[2].revents & POLLIN) != 0) // tcp
         {
-            /* TODO ... handle message on connection sockets */
+            int sock = tcp_client_accept();
+            tcp_clients_count++;
+
+            for (int i = 0; i < msg_count; i++)
+            {
+                printf("size = %d\n", messages[i].size);
+                // printf("size = %ld\n", sizeof(messages[i]));
+
+                // char *buf = calloc(2000, sizeof(char));
+
+                // memcpy(buf, &messages[i], sizeof(messages[i]));
+
+                // memcpy(buffer, &messages[i].size, sizeof(int));
+                // memcpy(buffer + 4, &messages[i].buffer, messages[i].size * sizeof(char));
+
+
+                if (send(client_sock, &messages[i], sizeof(messages[i]), 0) < 0)
+                {
+                    perror("[SERV] Can't send\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                printf("SENT!\n");
+
+                // if (send(client_sock, &messages[i].buffer, messages[i].size, 0) < 0)
+                // {
+                //     perror("[SERV] Can't send\n");
+                //     exit(EXIT_FAILURE);
+                // }
+            }
+
+            msg_count = 0;
         }
         else
         {

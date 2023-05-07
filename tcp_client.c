@@ -166,6 +166,19 @@ int main(int argc, char const *argv[])
                     perror("[CLIENT] Unable to send message\n");
                     exit(EXIT_FAILURE);
                 }
+
+                char *p = strtok(input, " ");
+
+                if (p != NULL && strcmp(p, "subscribe") == 0)
+                {
+                    p = strtok(NULL, " ");
+                    printf("Subscribed to %s.\n", p);
+                }
+                else if (p != NULL && strcmp(p, "unsubscribe") == 0)
+                {
+                    p = strtok(NULL, " ");
+                    printf("Unsubscribed from %s.\n", p);
+                }
             }
         }
         else if ((pfds[1].revents & POLLIN) != 0)

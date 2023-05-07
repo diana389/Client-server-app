@@ -46,7 +46,13 @@ typedef struct subscriber
 {
     int fd;
     int sent;
+    int active;
+    int sf;
+    char id_client[11];
 } subscriber;
+
+subscriber tcp_clients[100];
+int tcp_clients_count = 0;
 
 typedef struct topic
 {
@@ -60,7 +66,39 @@ typedef struct topic
 topic topics[100];
 int topics_count = 0;
 
-int tcp_clients_count = 0;
+void exit_command(int fd)
+{
+    strcpy(buffer, "exit");
+    int size_to_send = 5;
+    if (send(fd, &size_to_send, sizeof(int), 0) < 0)
+    {
+        perror("[SERV] Can't send\n");
+        exit(EXIT_FAILURE);
+    }
+    if (send(fd, buffer, size_to_send, 0) < 0)
+    {
+        perror("[SERV] Can't send exit command\n");
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+}
+
+void sent_exit_to_all()
+{
+    if (tcp_clients_count > 0)
+    {
+        for (int i = 3; i < nfds; i++)
+        {
+            exit_command(pfds[i].fd);
+        }
+    }
+
+    close(sockfd_udp);
+    close(socket_desc);
+    close(client_sock);
+
+    printf("EXIT\n");
+}
 
 void create_bind_udp_client()
 {
@@ -150,39 +188,22 @@ int tcp_client_accept()
     // printf("[SERV] Received id from client: %s\n", id_client);
 
     id_client[size_id_client] = '\0';
+
+    for (int i = 0; i < tcp_clients_count; i++)
+        if (strcmp(tcp_clients[i].id_client, id_client) == 0)
+        {
+            exit_command(client_sock);
+            printf("Client %s already connected.\n", id_client);
+            return -1;
+        }
+
     printf("New client %s connected from %s:%i.\n", id_client, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
+    strcpy(tcp_clients[tcp_clients_count].id_client, id_client);
+    tcp_clients[tcp_clients_count].fd = client_sock;
+    tcp_clients_count++;
+
     return client_sock;
-}
-
-void exit_command()
-{
-    strcpy(buffer, "exit");
-    int size_to_send = 5;
-
-    if (tcp_clients_count > 0)
-    {
-        for (int i = 3; i < nfds; i++)
-        {
-            if (send(pfds[i].fd, &size_to_send, sizeof(int), 0) < 0)
-            {
-                perror("[SERV] Can't send\n");
-                exit(EXIT_FAILURE);
-            }
-            if (send(pfds[i].fd, buffer, size_to_send, 0) < 0)
-            {
-                perror("[SERV] Can't send exit command\n");
-                exit(EXIT_FAILURE);
-            }
-            close(pfds[i].fd);
-        }
-    }
-
-    close(sockfd_udp);
-    close(socket_desc);
-    close(client_sock);
-
-    printf("EXIT\n");
 }
 
 void add_message_to_topic(msg message)
@@ -213,6 +234,97 @@ void print_topics()
         for (int j = 0; j < topics[i].subscribers_count; j++)
             printf("%d", topics[i].subscribers[j].fd);
         printf("\n");
+    }
+}
+
+void send_messages()
+{
+    for (int t = 0; t < topics_count; t++)
+        for (int s = 0; s < topics[t].subscribers_count; s++)
+        {
+            if (topics[t].subscribers[s].active == 1)
+            {
+                if (topics[t].list_count > topics[t].subscribers[s].sent)
+                {
+                    for (int mess = topics[t].subscribers[s].sent; mess < topics[t].list_count; mess++)
+                    {
+                        msg m = topics[t].list[mess];
+
+                        int size_to_send = sizeof(int) + sizeof(struct sockaddr) + 50 + m.size;
+
+                        if (send(topics[t].subscribers[s].fd, &size_to_send, sizeof(int), 0) < 0)
+                        {
+                            perror("[SERV] Can't send\n");
+                            exit(EXIT_FAILURE);
+                        }
+
+                        if (send(topics[t].subscribers[s].fd, &m, size_to_send, 0) < 0)
+                        {
+                            perror("[SERV] Can't send\n");
+                            exit(EXIT_FAILURE);
+                        }
+                    }
+
+                    topics[t].subscribers[s].sent = topics[t].list_count;
+                }
+            }
+        }
+}
+
+void subscribe(char *p, int fd)
+{
+    if (p != NULL)
+    {
+        p = strtok(NULL, " ");
+
+        if (p != NULL)
+        {
+
+            for (int j = 0; j < topics_count; j++)
+                if (strcmp(topics[j].topic, p) == 0)
+                {
+                    topics[j].subscribers[topics[j].subscribers_count].fd = fd;
+                    topics[j].subscribers[topics[j].subscribers_count].active = 1;
+
+                    p = strtok(NULL, " ");
+                    if (p != NULL)
+                    {
+                        topics[j].subscribers[topics[j].subscribers_count].sf = p[0] - '0';
+                    }
+
+                    topics[j].subscribers_count++;
+                    break;
+                }
+        }
+    }
+}
+
+void unsubscribe(char *p, int fd)
+{
+    p = strtok(NULL, " ");
+
+    if (p != NULL)
+    {
+        for (int t = 0; t < topics_count; t++)
+            if (strcmp(topics[t].topic, p) == 0)
+            {
+                for (int s = 0; s < topics[t].subscribers_count; s++)
+                    if (topics[t].subscribers[s].fd == fd)
+                    {
+                        if (topics[t].subscribers[s].sf == 1)
+                            topics[t].subscribers[s].active = 0;
+                        else
+                        {
+                            for (int x = s; x < topics[t].subscribers_count - 1; x++)
+                                topics[t].subscribers[x] = topics[t].subscribers[x + 1];
+
+                            topics[t].subscribers_count--;
+                        }
+                        break;
+                    }
+
+                break;
+            }
     }
 }
 
@@ -254,7 +366,7 @@ int main(int argc, char const *argv[])
             {
                 if (strcmp(input, "exit\n") == 0)
                 {
-                    exit_command();
+                    sent_exit_to_all();
                     return 0;
                 }
 
@@ -290,12 +402,13 @@ int main(int argc, char const *argv[])
         else if ((pfds[2].revents & POLLIN) != 0) // tcp
         {
             int sock = tcp_client_accept();
-            tcp_clients_count++;
 
-            /* add tcp socket */
-            pfds[nfds].fd = sock;
-            pfds[nfds].events = POLLIN;
-            nfds++;
+            if (sock != -1)
+            { /* add tcp socket */
+                pfds[nfds].fd = sock;
+                pfds[nfds].events = POLLIN;
+                nfds++;
+            }
         }
         else
         {
@@ -309,76 +422,18 @@ int main(int argc, char const *argv[])
 
                     if (strcmp(p, "subscribe") == 0)
                     {
-                        p = strtok(NULL, " ");
-                        for (int j = 0; j < topics_count; j++)
-                            if (strcmp(topics[j].topic, p) == 0)
-                            {
-                                topics[j].subscribers[topics[j].subscribers_count++].fd = pfds[i].fd;
-                                break;
-                            }
+                        subscribe(p, pfds[i].fd);
                     }
                     else if (strcmp(p, "unsubscribe") == 0)
                     {
-                        p = strtok(NULL, " ");
+                        unsubscribe(p, pfds[i].fd);
                     }
                 }
         }
 
         if (tcp_clients_count > 0 && msg_count > 0)
         {
-            // for (int i = 3; i < nfds; i++)
-            // {
-            //     for (int j = 0; j < msg_count; j++)
-            //     {
-            //         // printf("size = %d\n", messages[j].size);
-
-            //         int size_to_send = sizeof(int) + sizeof(struct sockaddr) + 50 + messages[j].size;
-
-            //         if (send(pfds[i].fd, &size_to_send, sizeof(int), 0) < 0)
-            //         {
-            //             perror("[SERV] Can't send\n");
-            //             exit(EXIT_FAILURE);
-            //         }
-
-            //         if (send(pfds[i].fd, &messages[j], size_to_send, 0) < 0)
-            //         {
-            //             perror("[SERV] Can't send\n");
-            //             exit(EXIT_FAILURE);
-            //         }
-
-            //         // printf("SENT!\n");
-            //     }
-            // }
-
-            // msg_count = 0;
-
-            for (int t = 0; t < topics_count; t++)
-                for (int s = 0; s < topics[t].subscribers_count; s++)
-                {
-                    if (topics[t].list_count > topics[t].subscribers[s].sent)
-                    {
-                        for (int mess = topics[t].subscribers[s].sent; mess < topics[t].list_count; mess++)
-                        {
-                            msg m = topics[t].list[mess];
-
-                            int size_to_send = sizeof(int) + sizeof(struct sockaddr) + 50 + m.size;
-
-                            if (send(topics[t].subscribers[s].fd, &size_to_send, sizeof(int), 0) < 0)
-                            {
-                                perror("[SERV] Can't send\n");
-                                exit(EXIT_FAILURE);
-                            }
-
-                            if (send(topics[t].subscribers[s].fd, &m, size_to_send, 0) < 0)
-                            {
-                                perror("[SERV] Can't send\n");
-                                exit(EXIT_FAILURE);
-                            }
-                        }
-                    }
-
-                    topics[t].subscribers[s].sent = topics[t].list_count;
-                }
+            send_messages();
         }
     }
 

@@ -40,57 +40,57 @@ void complete_message(int n, char *buffer, msg *message)
     memcpy(message->topic, buffer, 50 * sizeof(char));
     memcpy(&message->type, buffer + 50, sizeof(char));
 
-    // unsigned int type = 0;
-    // memcpy(&type, buffer + 50, sizeof(char));
+    unsigned int type = 0;
+    memcpy(&type, buffer + 50, sizeof(char));
 
-    printf("\n%d Client %d: %s --- %d --- \n", msg_count++, n, message->topic, message->type);
+    printf("%s - ", message->topic);
     // printf("\n%d Client %d: %s --- %d --- \n", msg_count++, n, message->topic, type);
 
-    // if (type == 0)
-    // {
-    //     uint8_t sign = 0;
-    //     memcpy(&sign, buffer + 51, sizeof(char));
-    //     memcpy(&message->payload_int, buffer + 52, sizeof(int));
+    if (type == 0)
+    {
+        uint8_t sign = 0;
+        memcpy(&sign, buffer + 51, sizeof(char));
+        memcpy(&message->payload_int, buffer + 52, sizeof(int));
 
-    //     message->payload_int = ntohl(message->payload_int);
+        message->payload_int = ntohl(message->payload_int);
 
-    //     if (sign) // negativ
-    //         message->payload_int = -message->payload_int;
+        if (sign) // negativ
+            message->payload_int = -message->payload_int;
 
-    //     printf("%d\n", message->payload_int);
-    // }
+        printf("INT - %d\n", message->payload_int);
+    }
 
-    // if (type == 1)
-    // {
-    //     uint16_t num = 0;
-    //     memcpy(&num, buffer + 51, sizeof(uint16_t));
+    if (type == 1)
+    {
+        uint16_t num = 0;
+        memcpy(&num, buffer + 51, sizeof(uint16_t));
 
-    //     message->payload_short_real = ntohs(num) / 100.00;
-    //     printf("%.4f\n", message->payload_short_real);
-    // }
+        message->payload_short_real = ntohs(num) / 100.00;
+        printf("SHORT_REAL - %.4f\n", message->payload_short_real);
+    }
 
-    // if (type == 2)
-    // {
-    //     uint8_t sign = 0, power = 0;
-    //     uint32_t num = 0;
-    //     memcpy(&sign, buffer + 51, sizeof(char));
-    //     memcpy(&num, buffer + 52, sizeof(int));
-    //     memcpy(&power, buffer + 56, sizeof(char));
+    if (type == 2)
+    {
+        uint8_t sign = 0, power = 0;
+        uint32_t num = 0;
+        memcpy(&sign, buffer + 51, sizeof(char));
+        memcpy(&num, buffer + 52, sizeof(int));
+        memcpy(&power, buffer + 56, sizeof(char));
 
-    //     message->payload_float = ntohl(num);
-    //     message->payload_float = message->payload_float / pow(10.0, power);
+        message->payload_float = ntohl(num);
+        message->payload_float = message->payload_float / pow(10.0, power);
 
-    //     if (sign) // negativ
-    //         message->payload_float = -message->payload_float;
+        if (sign) // negativ
+            message->payload_float = -message->payload_float;
 
-    //     printf("%.4f\n", message->payload_float);
-    // }
+        printf("FLOAT - %.4f\n", message->payload_float);
+    }
 
-    // if (type == 3)
-    // {
-    //     memcpy(message->payload_string, buffer + 51, (n - 50) * sizeof(char));
-    //     printf("%s\n", message->payload_string);
-    // }
+    if (type == 3)
+    {
+        memcpy(message->payload_string, buffer + 51, (n - 50) * sizeof(char));
+        printf("STRING - %s\n", message->payload_string);
+    }
 }
 
 int main(int argc, char const *argv[])
@@ -146,17 +146,28 @@ int main(int argc, char const *argv[])
 
     // printf("[CLIENT] Server's response: ");
     int count = 1;
+    int size_to_be_received = 0;
+    int n;
 
     while (1)
     {
         poll(pfds, nfds, -1);
 
         memset(server_message, 0, sizeof(server_message));
+        size_to_be_received = 0;
 
         if ((pfds[0].revents & POLLIN) != 0)
         {
+            n = recv(socket_desc, &size_to_be_received, sizeof(int), 0);
+            printf("size_t_b_r = %d\n", size_to_be_received);
 
-            int n = recv(socket_desc, server_message, 2072, 0);
+            if (n < 0)
+            {
+                perror("[CLIENT] Error while receiving server's msg\n");
+                exit(EXIT_FAILURE);
+            }
+
+            n = recv(socket_desc, server_message, size_to_be_received, 0);
 
             if (n < 0)
             {
@@ -174,28 +185,13 @@ int main(int argc, char const *argv[])
 
             int size;
             char *aux = server_message;
+            mesg *message1 = (mesg *)server_message;
 
-            // for (int i = 0; i < 150; i++)
-            //     printf("(%d %d) ", i, server_message[i]);
-
-            // printf("\n\nn = %d\n", n);
-            memcpy(&size, aux, sizeof(int));
-
-            aux += sizeof(int);
-
-            memcpy(&cliaddr, aux, sizeof(cliaddr));
-
-            aux += sizeof(cliaddr);
-            aux += 50;
-
-            //     printf("n = %d\n", n);
-            // printf("%d size = %d\n", count++, size);
-            // printf("msg = %s\n", aux);
+            printf("size = %d\n", message1->size);
+            printf("%s:%i - ", inet_ntoa(message1->cliaddr.sin_addr), ntohs(message1->cliaddr.sin_port));
 
             msg message;
-            complete_message(size, aux, &message);
-
-            aux += size;
+            complete_message(message1->size, message1->content, &message);
         }
     }
 

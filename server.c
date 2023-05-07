@@ -191,10 +191,20 @@ int main(int argc, char const *argv[])
                 {
                     strcpy(buffer, "exit");
 
-                    if (tcp_clients_count > 0 && send(client_sock, buffer, 5, 0) < 0)
+                    int size_to_send = 5;
+
+                    if (tcp_clients_count > 0)
                     {
-                        perror("[SERV] Can't send exit command\n");
-                        exit(EXIT_FAILURE);
+                        if (send(client_sock, &size_to_send, sizeof(int), 0) < 0)
+                        {
+                            perror("[SERV] Can't send\n");
+                            exit(EXIT_FAILURE);
+                        }
+                        if (send(client_sock, buffer, size_to_send, 0) < 0)
+                        {
+                            perror("[SERV] Can't send exit command\n");
+                            exit(EXIT_FAILURE);
+                        }
                     }
 
                     close(sockfd_udp);
@@ -219,7 +229,9 @@ int main(int argc, char const *argv[])
                 buffer[n] = '\n';
 
                 messages[msg_count].size = n;
-                messages[msg_count].cliaddr = client_addr;
+                messages[msg_count].cliaddr = cliaddr;
+                printf("Sent from %s:%i.\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
+
                 memcpy(&messages[msg_count].topic, buffer, 50 * sizeof(char));
                 memcpy(&messages[msg_count].content, buffer, n * sizeof(char));
 
@@ -245,8 +257,15 @@ int main(int argc, char const *argv[])
                 // memcpy(buffer, &messages[i].size, sizeof(int));
                 // memcpy(buffer + 4, &messages[i].buffer, messages[i].size * sizeof(char));
 
+                int size_to_send = sizeof(int) + sizeof(struct sockaddr) + 50 + messages[i].size;
 
-                if (send(client_sock, &messages[i], sizeof(messages[i]), 0) < 0)
+                if (send(client_sock, &size_to_send, sizeof(int), 0) < 0)
+                {
+                    perror("[SERV] Can't send\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                if (send(client_sock, &messages[i], size_to_send, 0) < 0)
                 {
                     perror("[SERV] Can't send\n");
                     exit(EXIT_FAILURE);

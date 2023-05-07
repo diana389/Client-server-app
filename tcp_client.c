@@ -10,86 +10,76 @@
 #define MAXLINE 2000
 
 struct sockaddr_in cliaddr;
+int n, size_to_be_received = 0;
 
 struct pollfd pfds[MAXLINE];
 int nfds = 0;
 
 typedef struct msg
 {
-    char topic[50];
-    unsigned int type;
-    int payload_int;              // type 0
-    float payload_short_real;     // type 1
-    float payload_float;          // type 2
-    char payload_string[MAXLINE]; // type 3
-
-} msg;
-
-typedef struct mesg
-{
     int size;
     struct sockaddr_in cliaddr;
     char topic[50];
     char content[MAXLINE];
-} mesg;
+} msg;
 
-int msg_count = 1;
-
-void complete_message(int n, char *buffer, msg *message)
+void complete_message(msg *message)
 {
-    memcpy(message->topic, buffer, 50 * sizeof(char));
-    memcpy(&message->type, buffer + 50, sizeof(char));
-
+    char *buffer = message->content;
     unsigned int type = 0;
     memcpy(&type, buffer + 50, sizeof(char));
 
+    printf("%s:%i - ", inet_ntoa(message->cliaddr.sin_addr), ntohs(message->cliaddr.sin_port));
     printf("%s - ", message->topic);
-    // printf("\n%d Client %d: %s --- %d --- \n", msg_count++, n, message->topic, type);
 
     if (type == 0)
     {
+        int payload_int;
         uint8_t sign = 0;
         memcpy(&sign, buffer + 51, sizeof(char));
-        memcpy(&message->payload_int, buffer + 52, sizeof(int));
+        memcpy(&payload_int, buffer + 52, sizeof(int));
 
-        message->payload_int = ntohl(message->payload_int);
+        payload_int = ntohl(payload_int);
 
         if (sign) // negativ
-            message->payload_int = -message->payload_int;
+            payload_int = -payload_int;
 
-        printf("INT - %d\n", message->payload_int);
+        printf("INT - %d\n", payload_int);
     }
 
     if (type == 1)
     {
+        float payload_short_real;
         uint16_t num = 0;
         memcpy(&num, buffer + 51, sizeof(uint16_t));
 
-        message->payload_short_real = ntohs(num) / 100.00;
-        printf("SHORT_REAL - %.4f\n", message->payload_short_real);
+        payload_short_real = ntohs(num) / 100.00;
+        printf("SHORT_REAL - %.4f\n", payload_short_real);
     }
 
     if (type == 2)
     {
+        float payload_float;
         uint8_t sign = 0, power = 0;
         uint32_t num = 0;
         memcpy(&sign, buffer + 51, sizeof(char));
         memcpy(&num, buffer + 52, sizeof(int));
         memcpy(&power, buffer + 56, sizeof(char));
 
-        message->payload_float = ntohl(num);
-        message->payload_float = message->payload_float / pow(10.0, power);
+        payload_float = ntohl(num);
+        payload_float = payload_float / pow(10.0, power);
 
         if (sign) // negativ
-            message->payload_float = -message->payload_float;
+            payload_float = -payload_float;
 
-        printf("FLOAT - %.4f\n", message->payload_float);
+        printf("FLOAT - %.4f\n", payload_float);
     }
 
     if (type == 3)
     {
-        memcpy(message->payload_string, buffer + 51, (n - 50) * sizeof(char));
-        printf("STRING - %s\n", message->payload_string);
+        char payload_string[MAXLINE];
+        memcpy(payload_string, buffer + 51, (message->size - 50) * sizeof(char));
+        printf("STRING - %s\n", payload_string);
     }
 }
 
@@ -145,9 +135,6 @@ int main(int argc, char const *argv[])
     nfds++;
 
     // printf("[CLIENT] Server's response: ");
-    int count = 1;
-    int size_to_be_received = 0;
-    int n;
 
     while (1)
     {
@@ -159,7 +146,7 @@ int main(int argc, char const *argv[])
         if ((pfds[0].revents & POLLIN) != 0)
         {
             n = recv(socket_desc, &size_to_be_received, sizeof(int), 0);
-            printf("size_t_b_r = %d\n", size_to_be_received);
+            // printf("size_t_b_r = %d\n", size_to_be_received);
 
             if (n < 0)
             {
@@ -183,15 +170,8 @@ int main(int argc, char const *argv[])
                 return 0;
             }
 
-            int size;
-            char *aux = server_message;
-            mesg *message1 = (mesg *)server_message;
-
-            printf("size = %d\n", message1->size);
-            printf("%s:%i - ", inet_ntoa(message1->cliaddr.sin_addr), ntohs(message1->cliaddr.sin_port));
-
-            msg message;
-            complete_message(message1->size, message1->content, &message);
+            msg *message = (msg *)server_message;
+            complete_message(message);
         }
     }
 

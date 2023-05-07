@@ -40,8 +40,9 @@ typedef struct msg
 } msg;
 
 int msg_count = 0;
-
 msg messages[100];
+
+
 
 void create_bind_udp_client()
 {
@@ -143,11 +144,6 @@ int tcp_client_accept()
 int main(int argc, char const *argv[])
 {
     PORT = atoi(argv[1]);
-
-    // int stdin_fd = fileno(stdin);                 // stdin corresponding file descriptor
-    // flags = fcntl(stdin_fd, F_GETFL);             // gets the current file status flags
-    // fcntl(stdin_fd, F_SETFL, flags | O_NONBLOCK); // sets the fd to non-blocking mode
-
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
     /* UDP CLIENT */
@@ -156,10 +152,7 @@ int main(int argc, char const *argv[])
     /* TCP CLIENT */
     create_bind_listen_tcp_client();
 
-    // // set udp socket to non-blocking mode
-    // flags = fcntl(sockfd_udp, F_GETFL, 0);
-    // fcntl(sockfd_udp, F_SETFL, flags | O_NONBLOCK);
-
+    /* stdin */
     pfds[nfds].fd = STDIN_FILENO;
     pfds[nfds].events = POLLIN;
     nfds++;
@@ -195,15 +188,19 @@ int main(int argc, char const *argv[])
 
                     if (tcp_clients_count > 0)
                     {
-                        if (send(client_sock, &size_to_send, sizeof(int), 0) < 0)
+                        for (int i = 3; i < nfds; i++)
                         {
-                            perror("[SERV] Can't send\n");
-                            exit(EXIT_FAILURE);
-                        }
-                        if (send(client_sock, buffer, size_to_send, 0) < 0)
-                        {
-                            perror("[SERV] Can't send exit command\n");
-                            exit(EXIT_FAILURE);
+                            if (send(pfds[i].fd, &size_to_send, sizeof(int), 0) < 0)
+                            {
+                                perror("[SERV] Can't send\n");
+                                exit(EXIT_FAILURE);
+                            }
+                            if (send(pfds[i].fd, buffer, size_to_send, 0) < 0)
+                            {
+                                perror("[SERV] Can't send exit command\n");
+                                exit(EXIT_FAILURE);
+                            }
+                            close(pfds[i].fd);
                         }
                     }
 
@@ -245,131 +242,49 @@ int main(int argc, char const *argv[])
             int sock = tcp_client_accept();
             tcp_clients_count++;
 
-            for (int i = 0; i < msg_count; i++)
+            /* add tcp socket */
+            pfds[nfds].fd = sock;
+            pfds[nfds].events = POLLIN;
+            nfds++;
+        }
+        else
+        {
+            for (int i = 3; i < nfds; i++)
+                if ((pfds[i].revents & POLLIN) != 0)
+                {
+                    recv(pfds[i].fd, buffer, 100, 0);
+                    printf("%s\n", buffer);
+                }
+        }
+
+        if (tcp_clients_count > 0 && msg_count > 0)
+        {
+            for (int i = 3; i < nfds; i++)
             {
-                printf("size = %d\n", messages[i].size);
-                // printf("size = %ld\n", sizeof(messages[i]));
-
-                // char *buf = calloc(2000, sizeof(char));
-
-                // memcpy(buf, &messages[i], sizeof(messages[i]));
-
-                // memcpy(buffer, &messages[i].size, sizeof(int));
-                // memcpy(buffer + 4, &messages[i].buffer, messages[i].size * sizeof(char));
-
-                int size_to_send = sizeof(int) + sizeof(struct sockaddr) + 50 + messages[i].size;
-
-                if (send(client_sock, &size_to_send, sizeof(int), 0) < 0)
+                for (int j = 0; j < msg_count; j++)
                 {
-                    perror("[SERV] Can't send\n");
-                    exit(EXIT_FAILURE);
+                    printf("size = %d\n", messages[j].size);
+
+                    int size_to_send = sizeof(int) + sizeof(struct sockaddr) + 50 + messages[j].size;
+
+                    if (send(pfds[i].fd, &size_to_send, sizeof(int), 0) < 0)
+                    {
+                        perror("[SERV] Can't send\n");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    if (send(pfds[i].fd, &messages[j], size_to_send, 0) < 0)
+                    {
+                        perror("[SERV] Can't send\n");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    printf("SENT!\n");
                 }
-
-                if (send(client_sock, &messages[i], size_to_send, 0) < 0)
-                {
-                    perror("[SERV] Can't send\n");
-                    exit(EXIT_FAILURE);
-                }
-
-                printf("SENT!\n");
-
-                // if (send(client_sock, &messages[i].buffer, messages[i].size, 0) < 0)
-                // {
-                //     perror("[SERV] Can't send\n");
-                //     exit(EXIT_FAILURE);
-                // }
             }
 
             msg_count = 0;
         }
-        else
-        {
-        }
-
-        // // if (tcp_client_accept() == 0)
-        // //     printf("Nobody accepted\n");
-        // /* read user data from standard input */
-
-        // if (tcp_client_accept() == 1)
-        //     tcp_clients_count++;
-
-        // char buffer[MAXLINE + 60];
-        // memset(buffer, 0, sizeof(buffer));
-
-        // int input_size = read(stdin_fd, input, 100);
-        // if (input_size > 0)
-        // {
-        //     // printf("\nEnd of input\n");
-        //     input[input_size] = '\0';
-
-        //     if (strcmp(input, "exit\n") == 0)
-        //     {
-        //         strcpy(buffer, "exit");
-
-        //         if (tcp_clients_count > 0 && send(client_sock, buffer, 5, 0) < 0)
-        //         {
-        //             perror("[SERV] Can't send exit command\n");
-        //             exit(EXIT_FAILURE);
-        //         }
-
-        //         close(sockfd_udp);
-        //         close(socket_desc);
-        //         close(client_sock);
-
-        //         // printf("EXIT\n");
-        //         return 0;
-        //     }
-        // }
-
-        // /* UDP CLIENT */
-
-        // socklen_t len = sizeof(cliaddr);
-
-        // int n = recvfrom(sockfd_udp, (char *)buffer, MAXLINE,
-        //                  MSG_WAITALL, (struct sockaddr *)&cliaddr,
-        //                  &len);
-
-        // if (n != -1)
-        // {
-        //     buffer[n] = '\n';
-
-        //     messages[msg_count].size = n;
-        //     memcpy(&messages[msg_count].buffer, buffer, n * sizeof(char));
-
-        //     printf("%d %s\n", msg_count, messages[msg_count].buffer.topic);
-
-        //     msg_count++;
-        // }
-
-        // if (tcp_clients_count > 0)
-        // {
-        //     for (int i = 0; i < msg_count; i++)
-        //     {
-        //         printf("size = %d\n", messages[i].size);
-        //         printf("size = %ld\n", sizeof(messages[i]));
-
-        //         // char *buf = calloc(2000, sizeof(char));
-
-        //         // memcpy(buf, &messages[i], sizeof(messages[i]));
-
-        //         // memcpy(buffer, &messages[i].size, sizeof(int));
-        //         // memcpy(buffer + 4, &messages[i].buffer, messages[i].size * sizeof(char));
-
-        //         if (send(client_sock, &messages[i].size, 4, 0) < 0)
-        //         {
-        //             perror("[SERV] Can't send\n");
-        //             exit(EXIT_FAILURE);
-        //         }
-
-        //         if (send(client_sock, &messages[i].buffer, messages[i].size, 0) < 0)
-        //         {
-        //             perror("[SERV] Can't send\n");
-        //             exit(EXIT_FAILURE);
-        //         }
-        //     }
-
-        //     msg_count = 0;
-        // }
     }
 
     return 0;

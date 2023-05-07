@@ -130,20 +130,45 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
     }
 
+    /* stdin */
+    pfds[nfds].fd = STDIN_FILENO;
+    pfds[nfds].events = POLLIN;
+    nfds++;
+
+    /* tcp socket*/
     pfds[nfds].fd = socket_desc;
     pfds[nfds].events = POLLIN;
     nfds++;
 
     // printf("[CLIENT] Server's response: ");
 
+    char input[100];
+
     while (1)
     {
         poll(pfds, nfds, -1);
 
         memset(server_message, 0, sizeof(server_message));
+        memset(input, 0, sizeof(input));
+
         size_to_be_received = 0;
 
         if ((pfds[0].revents & POLLIN) != 0)
+        {
+            if (fgets(input, 100, stdin))
+            {
+                input[strlen(input) - 1] = '\0';
+                printf("%s\n", input);
+
+                /* Send the message to server */
+                if (send(socket_desc, input, 100, 0) < 0)
+                {
+                    perror("[CLIENT] Unable to send message\n");
+                    exit(EXIT_FAILURE);
+                }
+            }
+        }
+        else if ((pfds[1].revents & POLLIN) != 0)
         {
             n = recv(socket_desc, &size_to_be_received, sizeof(int), 0);
             // printf("size_t_b_r = %d\n", size_to_be_received);

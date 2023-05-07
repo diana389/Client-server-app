@@ -203,27 +203,31 @@ int tcp_client_accept()
     tcp_clients[tcp_clients_count].fd = client_sock;
     tcp_clients_count++;
 
+    for (int t = 0; t < topics_count; t++)
+        for (int s = 0; s < topics[t].subscribers_count; s++)
+            if (topics[t].subscribers[s].fd == client_sock)
+            {
+                topics[t].subscribers[s].active = 1;
+
+                if (topics[t].subscribers[s].sf == 0)
+                    topics[t].subscribers[s].sent = topics[t].list_count;
+            }
+
     return client_sock;
 }
 
 void add_message_to_topic(msg message)
 {
-    int is_topic = 0;
-
     for (int i = 0; i < topics_count; i++)
         if (strcmp(topics[i].topic, message.topic) == 0)
         {
             topics[i].list[topics[i].list_count++] = message;
-            is_topic = 1;
-            break;
+            return;
         }
 
-    if (is_topic == 0)
-    {
-        strcpy(topics[topics_count].topic, message.topic);
-        topics[topics_count].list[topics[topics_count].list_count++] = message;
-        topics_count++;
-    }
+    strcpy(topics[topics_count].topic, message.topic);
+    topics[topics_count].list[topics[topics_count].list_count++] = message;
+    topics_count++;
 }
 
 void print_topics()
@@ -280,21 +284,38 @@ void subscribe(char *p, int fd)
         if (p != NULL)
         {
 
-            for (int j = 0; j < topics_count; j++)
-                if (strcmp(topics[j].topic, p) == 0)
+            for (int t = 0; t < topics_count; t++)
+                if (strcmp(topics[t].topic, p) == 0)
                 {
-                    topics[j].subscribers[topics[j].subscribers_count].fd = fd;
-                    topics[j].subscribers[topics[j].subscribers_count].active = 1;
+                    for (int s = 0; s < topics[t].subscribers_count; s++)
+                        if (topics[t].subscribers[s].fd == fd)
+                            return;
+
+                    topics[t].subscribers[topics[t].subscribers_count].fd = fd;
+                    topics[t].subscribers[topics[t].subscribers_count].active = 1;
 
                     p = strtok(NULL, " ");
                     if (p != NULL)
                     {
-                        topics[j].subscribers[topics[j].subscribers_count].sf = p[0] - '0';
+                        topics[t].subscribers[topics[t].subscribers_count].sf = p[0] - '0';
                     }
 
-                    topics[j].subscribers_count++;
-                    break;
+                    topics[t].subscribers_count++;
+                    return;
                 }
+
+            strcpy(topics[topics_count].topic, p);
+            topics[topics_count].subscribers[0].fd = fd;
+            topics[topics_count].subscribers[0].active = 1;
+
+            p = strtok(NULL, " ");
+            if (p != NULL)
+            {
+                topics[topics_count].subscribers[0].sf = p[0] - '0';
+            }
+
+            topics[topics_count].subscribers_count++;
+            topics_count++;
         }
     }
 }
@@ -311,15 +332,10 @@ void unsubscribe(char *p, int fd)
                 for (int s = 0; s < topics[t].subscribers_count; s++)
                     if (topics[t].subscribers[s].fd == fd)
                     {
-                        if (topics[t].subscribers[s].sf == 1)
-                            topics[t].subscribers[s].active = 0;
-                        else
-                        {
-                            for (int x = s; x < topics[t].subscribers_count - 1; x++)
-                                topics[t].subscribers[x] = topics[t].subscribers[x + 1];
+                        for (int x = s; x < topics[t].subscribers_count - 1; x++)
+                            topics[t].subscribers[x] = topics[t].subscribers[x + 1];
 
-                            topics[t].subscribers_count--;
-                        }
+                        topics[t].subscribers_count--;
                         break;
                     }
 
@@ -415,9 +431,41 @@ int main(int argc, char const *argv[])
             for (int i = 3; i < nfds; i++)
                 if ((pfds[i].revents & POLLIN) != 0)
                 {
-                    recv(pfds[i].fd, buffer, 100, 0);
-                    printf("%s\n", buffer);
+                    int n = recv(pfds[i].fd, buffer, 100, 0);
 
+                    if (n == 0)
+                    {
+                        printf("Client disconnected\n");
+                        for (int t = 0; t < topics_count; t++)
+                            for (int s = 0; s < topics[t].subscribers_count; s++)
+                                if (topics[t].subscribers[s].fd == pfds[i].fd)
+                                    topics[t].subscribers[s].active = 0;
+
+                        int index = -1;
+
+                        for (int j = 0; j < tcp_clients_count; j++)
+                            if (tcp_clients[j].fd == pfds[i].fd)
+                            {
+                                index = j;
+                                break;
+                            }
+
+                        if (index != -1)
+                        {
+                            for (int j = index; j < tcp_clients_count - 1; j++)
+                                tcp_clients[j] = tcp_clients[j + 1];
+
+                            tcp_clients_count--;
+                        }
+
+                        for (int j = i; j < nfds; j++)
+                            pfds[j] = pfds[j + 1];
+
+                        nfds--;
+                        break;
+                    }
+
+                    printf("%s\n", buffer);
                     char *p = strtok(buffer, " ");
 
                     if (strcmp(p, "subscribe") == 0)
@@ -436,6 +484,4 @@ int main(int argc, char const *argv[])
             send_messages();
         }
     }
-
-    return 0;
 }

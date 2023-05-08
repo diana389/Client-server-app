@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <math.h>
 #include <sys/poll.h>
+#include <netinet/tcp.h>
 
 #define MAXLINE 2000
 
@@ -35,7 +36,7 @@ typedef struct msg
 {
     int size;
     struct sockaddr_in cliaddr;
-    char topic[50];
+    char topic[51];
     char content[MAXLINE];
 } msg;
 
@@ -56,7 +57,7 @@ int tcp_clients_count = 0;
 
 typedef struct topic
 {
-    char topic[50];
+    char topic[51];
     msg list[100];
     int list_count;
     subscriber subscribers[100];
@@ -85,19 +86,13 @@ void exit_command(int fd)
 
 void sent_exit_to_all()
 {
-    if (tcp_clients_count > 0)
-    {
-        for (int i = 3; i < nfds; i++)
-        {
-            exit_command(pfds[i].fd);
-        }
-    }
+    for (int i = 0; i < tcp_clients_count; i++)
+        exit_command(tcp_clients[i].fd);
 
     close(sockfd_udp);
     close(socket_desc);
-    close(client_sock);
 
-    printf("EXIT\n");
+    // printf("EXIT\n");
 }
 
 void create_bind_udp_client()
@@ -140,6 +135,12 @@ void create_bind_listen_tcp_client()
         exit(EXIT_FAILURE);
     }
     // printf("[SERV] Socket created successfully\n");
+
+    int flag = 1;
+    if (setsockopt(socket_desc, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(int)) != 0)
+    {
+        perror("Error TCP_NODELAY\n");
+    }
 
     // Filling server information
     servaddr.sin_family = AF_INET;         // IPv4
@@ -205,9 +206,10 @@ int tcp_client_accept()
 
     for (int t = 0; t < topics_count; t++)
         for (int s = 0; s < topics[t].subscribers_count; s++)
-            if (topics[t].subscribers[s].fd == client_sock)
+            if (strcmp(topics[t].subscribers[s].id_client, id_client) == 0)
             {
                 topics[t].subscribers[s].active = 1;
+                topics[t].subscribers[s].fd = client_sock;
 
                 if (topics[t].subscribers[s].sf == 0)
                     topics[t].subscribers[s].sent = topics[t].list_count;
@@ -230,13 +232,32 @@ void add_message_to_topic(msg message)
     topics_count++;
 }
 
-void print_topics()
+void print_only_topics()
 {
     for (int i = 0; i < topics_count; i++)
     {
         printf("%d %s:", i, topics[i].topic);
         for (int j = 0; j < topics[i].subscribers_count; j++)
             printf("%d", topics[i].subscribers[j].fd);
+        printf("\n");
+    }
+}
+
+void print_tcp_clients()
+{
+    for (int i = 0; i < tcp_clients_count; i++)
+        printf("%d ", tcp_clients[i].fd);
+
+    printf("\n");
+}
+
+void print_topics()
+{
+    for (int i = 0; i < topics_count; i++)
+    {
+        printf("%s :", topics[i].topic);
+        for (int j = 0; j < topics[i].subscribers_count; j++)
+            printf("(%s %d) ", topics[i].subscribers[j].id_client, topics[i].subscribers[j].fd);
         printf("\n");
     }
 }
@@ -254,7 +275,7 @@ void send_messages()
                     {
                         msg m = topics[t].list[mess];
 
-                        int size_to_send = sizeof(int) + sizeof(struct sockaddr) + 50 + m.size;
+                        int size_to_send = sizeof(int) + sizeof(struct sockaddr) + 51 + m.size;
 
                         if (send(topics[t].subscribers[s].fd, &size_to_send, sizeof(int), 0) < 0)
                         {
@@ -283,22 +304,36 @@ void subscribe(char *p, int fd)
 
         if (p != NULL)
         {
+            char id[11];
+            for (int i = 0; i < tcp_clients_count; i++)
+                if (tcp_clients[i].fd == fd)
+                {
+                    strcpy(id, tcp_clients[i].id_client);
+                    break;
+                }
 
             for (int t = 0; t < topics_count; t++)
                 if (strcmp(topics[t].topic, p) == 0)
                 {
                     for (int s = 0; s < topics[t].subscribers_count; s++)
-                        if (topics[t].subscribers[s].fd == fd)
+                        if (strcmp(topics[t].subscribers[s].id_client, id) == 0)
+                        {
+                            topics[t].subscribers[s].fd = fd;
                             return;
+                        }
 
                     topics[t].subscribers[topics[t].subscribers_count].fd = fd;
                     topics[t].subscribers[topics[t].subscribers_count].active = 1;
+
+                    strcpy(topics[t].subscribers[topics[t].subscribers_count].id_client, id);
 
                     p = strtok(NULL, " ");
                     if (p != NULL)
                     {
                         topics[t].subscribers[topics[t].subscribers_count].sf = p[0] - '0';
                     }
+
+                    topics[t].subscribers[topics[t].subscribers_count].sent = topics[t].list_count;
 
                     topics[t].subscribers_count++;
                     return;
@@ -307,6 +342,7 @@ void subscribe(char *p, int fd)
             strcpy(topics[topics_count].topic, p);
             topics[topics_count].subscribers[0].fd = fd;
             topics[topics_count].subscribers[0].active = 1;
+            strcpy(topics[topics_count].subscribers[0].id_client, id);
 
             p = strtok(NULL, " ");
             if (p != NULL)
@@ -346,7 +382,8 @@ void unsubscribe(char *p, int fd)
 
 int main(int argc, char const *argv[])
 {
-    PORT = atoi(argv[1]);
+    sscanf(argv[1], "%d", &PORT);
+
     setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
     /* UDP CLIENT */
@@ -386,7 +423,13 @@ int main(int argc, char const *argv[])
                     return 0;
                 }
 
-                if (strcmp(input, "print\n") == 0)
+                // if (strcmp(input, "print\n") == 0)
+                //     print_topics();
+
+                if (strcmp(input, "printtcp\n") == 0)
+                    print_tcp_clients();
+
+                if (strcmp(input, "printtopics\n") == 0)
                     print_topics();
             }
         }
@@ -404,12 +447,12 @@ int main(int argc, char const *argv[])
 
                 messages[msg_count].size = n;
                 messages[msg_count].cliaddr = cliaddr;
-                printf("Sent from %s:%i.\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
+                // printf("Sent from %s:%i.\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
 
                 memcpy(&messages[msg_count].topic, buffer, 50 * sizeof(char));
-                memcpy(&messages[msg_count].content, buffer, n * sizeof(char));
+                messages[msg_count].topic[51] = '\0';
 
-                // printf("%d %s\n", msg_count, messages[msg_count].content);
+                memcpy(&messages[msg_count].content, buffer, n * sizeof(char));
 
                 add_message_to_topic(messages[msg_count]);
                 msg_count++;
@@ -435,7 +478,6 @@ int main(int argc, char const *argv[])
 
                     if (n == 0)
                     {
-                        printf("Client disconnected\n");
                         for (int t = 0; t < topics_count; t++)
                             for (int s = 0; s < topics[t].subscribers_count; s++)
                                 if (topics[t].subscribers[s].fd == pfds[i].fd)
@@ -452,6 +494,7 @@ int main(int argc, char const *argv[])
 
                         if (index != -1)
                         {
+                            printf("Client %s disconnected.\n", tcp_clients[index].id_client);
                             for (int j = index; j < tcp_clients_count - 1; j++)
                                 tcp_clients[j] = tcp_clients[j + 1];
 
@@ -465,7 +508,7 @@ int main(int argc, char const *argv[])
                         break;
                     }
 
-                    printf("%s\n", buffer);
+                    // printf("%s\n", buffer);
                     char *p = strtok(buffer, " ");
 
                     if (strcmp(p, "subscribe") == 0)

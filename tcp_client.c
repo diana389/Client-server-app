@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <math.h>
 #include <poll.h>
+#include <netinet/tcp.h>
 
 #define MAXLINE 2000
 
@@ -19,7 +20,7 @@ typedef struct msg
 {
     int size;
     struct sockaddr_in cliaddr;
-    char topic[50];
+    char topic[51];
     char content[MAXLINE];
 } msg;
 
@@ -86,7 +87,8 @@ void complete_message(msg *message)
 int main(int argc, char const *argv[])
 {
     char id_client[50], ip_server[20];
-    int PORT = atoi(argv[3]);
+    int PORT;
+    sscanf(argv[3], "%d", &PORT);
 
     strcpy(id_client, argv[1]);
     strcpy(ip_server, argv[2]);
@@ -106,6 +108,12 @@ int main(int argc, char const *argv[])
     {
         perror("[CLIENT] Unable to create socket\n");
         exit(EXIT_FAILURE);
+    }
+
+    int flag = 1;
+    if(setsockopt(socket_desc, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(int)) != 0)
+    {
+        perror("Error TCP_NODELAY\n");
     }
 
     // printf("[CLIENT] Socket created successfully\n");
@@ -157,8 +165,12 @@ int main(int argc, char const *argv[])
         {
             if (fgets(input, 100, stdin))
             {
-                input[strlen(input) - 1] = '\0';
-                printf("%s\n", input);
+                if (strcmp(input, "exit\n") == 0)
+                {
+                    // perror("[CLIENT] Exit message\n");
+                    close(socket_desc);
+                    return 0;
+                }
 
                 /* Send the message to server */
                 if (send(socket_desc, input, 100, 0) < 0)
@@ -171,13 +183,13 @@ int main(int argc, char const *argv[])
 
                 if (p != NULL && strcmp(p, "subscribe") == 0)
                 {
-                    p = strtok(NULL, " ");
-                    printf("Subscribed to %s.\n", p);
+                    p = strtok(NULL, " \n");
+                    printf("Subscribed to topic.\n");
                 }
                 else if (p != NULL && strcmp(p, "unsubscribe") == 0)
                 {
-                    p = strtok(NULL, " ");
-                    printf("Unsubscribed from %s.\n", p);
+                    p = strtok(NULL, " \n");
+                    printf("Unsubscribed from topic.\n");
                 }
             }
         }
@@ -202,7 +214,7 @@ int main(int argc, char const *argv[])
 
             if (strcmp(server_message, "exit\0") == 0)
             {
-                printf("[CLIENT] Exit message\n");
+                // perror("[CLIENT] Exit message\n");
                 // free(server_message);
                 close(socket_desc);
                 return 0;

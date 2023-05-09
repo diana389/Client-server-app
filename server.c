@@ -41,7 +41,6 @@ typedef struct msg
 } msg;
 
 int msg_count = 0;
-msg messages[100];
 
 typedef struct subscriber
 {
@@ -91,8 +90,6 @@ void sent_exit_to_all()
 
     close(sockfd_udp);
     close(socket_desc);
-
-    // printf("EXIT\n");
 }
 
 void create_bind_udp_client()
@@ -134,7 +131,6 @@ void create_bind_listen_tcp_client()
         perror("[SERV] Error while creating socket\n");
         exit(EXIT_FAILURE);
     }
-    // printf("[SERV] Socket created successfully\n");
 
     int flag = 1;
     if (setsockopt(socket_desc, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(int)) != 0)
@@ -153,7 +149,6 @@ void create_bind_listen_tcp_client()
         perror("[SERV] Couldn't bind to the port\n");
         exit(EXIT_FAILURE);
     }
-    // printf("[SERV] Binding completed successfully\n");
 
     /* Listen for clients */
     if (listen(socket_desc, 35) < 0)
@@ -161,7 +156,6 @@ void create_bind_listen_tcp_client()
         perror("Error while listening\n");
         exit(EXIT_FAILURE);
     }
-    // printf("[SERV] Start listening for incoming connections.....\n");
 }
 
 int tcp_client_accept()
@@ -192,7 +186,6 @@ int tcp_client_accept()
         perror("[SERV] Couldn't receive\n");
         exit(EXIT_FAILURE);
     }
-    // printf("[SERV] Received id from client: %s\n", id_client);
 
     id_client[size_id_client] = '\0';
 
@@ -428,15 +421,6 @@ int main(int argc, char const *argv[])
                     sent_exit_to_all();
                     return 0;
                 }
-
-                // if (strcmp(input, "print\n") == 0)
-                //     print_topics();
-
-                if (strcmp(input, "printtcp\n") == 0)
-                    print_tcp_clients();
-
-                if (strcmp(input, "printtopics\n") == 0)
-                    print_topics();
             }
         }
         else if ((pfds[1].revents & POLLIN) != 0) // udp
@@ -454,20 +438,8 @@ int main(int argc, char const *argv[])
                 msg message;
                 memset(&message, 0, sizeof(message));
 
-                // memset(&messages[msg_count], 0, sizeof(messages[msg_count]));
                 message.size = n;
                 message.cliaddr = cliaddr;
-
-                // messages[msg_count].size = n;
-                // messages[msg_count].cliaddr = cliaddr;
-                // printf("Sent from %s:%i.\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
-
-                // memcpy(&messages[msg_count].topic, buffer, 50 * sizeof(char));
-                // messages[msg_count].topic[51] = '\0';
-
-                // memcpy(&messages[msg_count].content, buffer, (n + 1) * sizeof(char));
-
-                // add_message_to_topic(messages[msg_count]);
 
                 memcpy(&message.topic, buffer, 50 * sizeof(char));
                 message.topic[51] = '\0';
@@ -529,18 +501,12 @@ int main(int argc, char const *argv[])
                     }
 
                     buffer[n] = '\n';
-
-                    // printf("%s\n", buffer);
                     char *p = strtok(buffer, " ");
 
                     if (strcmp(p, "subscribe") == 0)
-                    {
                         subscribe(p, pfds[i].fd);
-                    }
                     else if (strcmp(p, "unsubscribe") == 0)
-                    {
                         unsubscribe(p, pfds[i].fd);
-                    }
                 }
         }
 

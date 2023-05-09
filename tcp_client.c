@@ -116,8 +116,6 @@ int main(int argc, char const *argv[])
         perror("Error TCP_NODELAY\n");
     }
 
-    // printf("[CLIENT] Socket created successfully\n");
-
     /* Set port and IP the same as server-side */
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(PORT);
@@ -129,7 +127,6 @@ int main(int argc, char const *argv[])
         perror("[CLIENT] Unable to connect\n");
         exit(EXIT_FAILURE);
     }
-    // printf("[CLIENT] Connected with server successfully\n");
 
     /* Send the message to server */
     if (send(socket_desc, id_client, strlen(id_client), 0) < 0)
@@ -147,8 +144,6 @@ int main(int argc, char const *argv[])
     pfds[nfds].fd = socket_desc;
     pfds[nfds].events = POLLIN;
     nfds++;
-
-    // printf("[CLIENT] Server's response: ");
 
     char input[100];
 
@@ -196,7 +191,6 @@ int main(int argc, char const *argv[])
         else if ((pfds[1].revents & POLLIN) != 0)
         {
             n = recv(socket_desc, &size_to_be_received, sizeof(int), 0);
-            // printf("size_t_b_r = %d\n", size_to_be_received);
 
             if (n < 0)
             {
@@ -214,8 +208,6 @@ int main(int argc, char const *argv[])
 
             if (strcmp(server_message, "exit\0") == 0)
             {
-                // perror("[CLIENT] Exit message\n");
-                // free(server_message);
                 close(socket_desc);
                 return 0;
             }

@@ -156,7 +156,7 @@ void create_bind_listen_tcp_client()
     // printf("[SERV] Binding completed successfully\n");
 
     /* Listen for clients */
-    if (listen(socket_desc, 1) < 0)
+    if (listen(socket_desc, 35) < 0)
     {
         perror("Error while listening\n");
         exit(EXIT_FAILURE);
@@ -176,6 +176,12 @@ int tcp_client_accept()
 
     if (client_sock < 0)
         return -1;
+
+    int flag = 1;
+    if (setsockopt(client_sock, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(int)) != 0)
+    {
+        perror("Error TCP_NODELAY\n");
+    }
 
     char id_client[11];
     /* Receive message from clients. Note that we use client_sock, not socket_desc */
@@ -445,16 +451,30 @@ int main(int argc, char const *argv[])
             {
                 buffer[n] = '\n';
 
-                messages[msg_count].size = n;
-                messages[msg_count].cliaddr = cliaddr;
+                msg message;
+                memset(&message, 0, sizeof(message));
+
+                // memset(&messages[msg_count], 0, sizeof(messages[msg_count]));
+                message.size = n;
+                message.cliaddr = cliaddr;
+
+                // messages[msg_count].size = n;
+                // messages[msg_count].cliaddr = cliaddr;
                 // printf("Sent from %s:%i.\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
 
-                memcpy(&messages[msg_count].topic, buffer, 50 * sizeof(char));
-                messages[msg_count].topic[51] = '\0';
+                // memcpy(&messages[msg_count].topic, buffer, 50 * sizeof(char));
+                // messages[msg_count].topic[51] = '\0';
 
-                memcpy(&messages[msg_count].content, buffer, n * sizeof(char));
+                // memcpy(&messages[msg_count].content, buffer, (n + 1) * sizeof(char));
 
-                add_message_to_topic(messages[msg_count]);
+                // add_message_to_topic(messages[msg_count]);
+
+                memcpy(&message.topic, buffer, 50 * sizeof(char));
+                message.topic[51] = '\0';
+
+                memcpy(&message.content, buffer, (n + 1) * sizeof(char));
+
+                add_message_to_topic(message);
                 msg_count++;
             }
         }
@@ -507,6 +527,8 @@ int main(int argc, char const *argv[])
                         nfds--;
                         break;
                     }
+
+                    buffer[n] = '\n';
 
                     // printf("%s\n", buffer);
                     char *p = strtok(buffer, " ");

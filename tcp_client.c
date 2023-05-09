@@ -18,22 +18,24 @@ int nfds = 0;
 
 typedef struct msg
 {
-    int size;
-    struct sockaddr_in cliaddr;
+    int size;                   // size of content
+    struct sockaddr_in cliaddr; // udp client structure
     char topic[51];
-    char content[MAXLINE];
+    char content[MAXLINE]; // content received from UDP
 } msg;
 
 void complete_message(msg *message)
 {
-    char *buffer = message->content;
+    char *buffer = message->content; // content received from UDP
     unsigned int type = 0;
-    memcpy(&type, buffer + 50, sizeof(char));
+    memcpy(&type, buffer + 50, sizeof(char)); // message type
 
+    // print sender info
     printf("%s:%i - ", inet_ntoa(message->cliaddr.sin_addr), ntohs(message->cliaddr.sin_port));
+    // print topic
     printf("%s - ", message->topic);
 
-    if (type == 0)
+    if (type == 0) // int
     {
         int payload_int;
         uint8_t sign = 0;
@@ -48,7 +50,7 @@ void complete_message(msg *message)
         printf("INT - %d\n", payload_int);
     }
 
-    if (type == 1)
+    if (type == 1) // short real
     {
         float payload_short_real;
         uint16_t num = 0;
@@ -58,7 +60,7 @@ void complete_message(msg *message)
         printf("SHORT_REAL - %.4f\n", payload_short_real);
     }
 
-    if (type == 2)
+    if (type == 2) // float
     {
         float payload_float;
         uint8_t sign = 0, power = 0;
@@ -76,7 +78,7 @@ void complete_message(msg *message)
         printf("FLOAT - %.4f\n", payload_float);
     }
 
-    if (type == 3)
+    if (type == 3) // string
     {
         char payload_string[MAXLINE];
         memcpy(payload_string, buffer + 51, (message->size - 50) * sizeof(char));
@@ -110,8 +112,9 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
     }
 
+    // Disable Nagle algorithm
     int flag = 1;
-    if(setsockopt(socket_desc, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(int)) != 0)
+    if (setsockopt(socket_desc, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(int)) != 0)
     {
         perror("Error TCP_NODELAY\n");
     }
@@ -156,11 +159,11 @@ int main(int argc, char const *argv[])
 
         size_to_be_received = 0;
 
-        if ((pfds[0].revents & POLLIN) != 0)
+        if ((pfds[0].revents & POLLIN) != 0) // stdin
         {
             if (fgets(input, 100, stdin))
             {
-                if (strcmp(input, "exit\n") == 0)
+                if (strcmp(input, "exit\n") == 0) // close socket
                 {
                     // perror("[CLIENT] Exit message\n");
                     close(socket_desc);
@@ -176,6 +179,7 @@ int main(int argc, char const *argv[])
 
                 char *p = strtok(input, " ");
 
+                // print subscribing info
                 if (p != NULL && strcmp(p, "subscribe") == 0)
                 {
                     p = strtok(NULL, " \n");
@@ -188,7 +192,7 @@ int main(int argc, char const *argv[])
                 }
             }
         }
-        else if ((pfds[1].revents & POLLIN) != 0)
+        else if ((pfds[1].revents & POLLIN) != 0) // server
         {
             n = recv(socket_desc, &size_to_be_received, sizeof(int), 0);
 
@@ -206,12 +210,13 @@ int main(int argc, char const *argv[])
                 exit(EXIT_FAILURE);
             }
 
-            if (strcmp(server_message, "exit\0") == 0)
+            if (strcmp(server_message, "exit\0") == 0) // server closing
             {
                 close(socket_desc);
                 return 0;
             }
 
+            // parse message
             msg *message = (msg *)server_message;
             complete_message(message);
         }

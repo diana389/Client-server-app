@@ -525,4 +525,6 @@ int main(int argc, char const *argv[])
 
         send_messages();
     }
+
+    return 0;
 }

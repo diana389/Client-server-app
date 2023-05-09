@@ -16,12 +16,10 @@
 #define MAXLINE 2000
 
 int PORT;
-int flags;
 int sockfd_udp;
 char input[100];
 struct sockaddr_in servaddr, cliaddr;
 
-// int sockfd_tcp;
 int socket_desc, client_sock;
 unsigned int client_size;
 struct sockaddr_in client_addr;
@@ -34,10 +32,10 @@ int nfds = 0;
 
 typedef struct msg
 {
-    int size;
-    struct sockaddr_in cliaddr;
+    int size;                   // size of content
+    struct sockaddr_in cliaddr; // udp client structure
     char topic[51];
-    char content[MAXLINE];
+    char content[MAXLINE]; // content received from UDP
 } msg;
 
 int msg_count = 0;
@@ -45,27 +43,28 @@ int msg_count = 0;
 typedef struct subscriber
 {
     int fd;
-    int sent;
-    int active;
-    int sf;
+    int sent;   // number of messages
+    int active; // 1 if client is connected
+    int sf;     // option store-and-forward
     char id_client[11];
 } subscriber;
 
-subscriber tcp_clients[100];
-int tcp_clients_count = 0;
+subscriber tcp_clients[100]; // all connected tcp clients
+int tcp_clients_count = 0;   // number pf tcp connectes clients
 
 typedef struct topic
 {
     char topic[51];
-    msg list[100];
-    int list_count;
-    subscriber subscribers[100];
-    int subscribers_count;
+    msg list[100];               // messages to this topic
+    int list_count;              // list size
+    subscriber subscribers[100]; // tcp clients subscribed on this topic
+    int subscribers_count;       // numbers of subscribers
 } topic;
 
-topic topics[100];
+topic topics[100]; // array of topics
 int topics_count = 0;
 
+// sends "exit" message to a client
 void exit_command(int fd)
 {
     strcpy(buffer, "exit");
@@ -82,7 +81,7 @@ void exit_command(int fd)
     }
     close(fd);
 }
-
+// sends "exit" message to all clients and closes sockets
 void sent_exit_to_all()
 {
     for (int i = 0; i < tcp_clients_count; i++)
@@ -132,11 +131,10 @@ void create_bind_listen_tcp_client()
         exit(EXIT_FAILURE);
     }
 
+    // Disable Nagle algorithm
     int flag = 1;
     if (setsockopt(socket_desc, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(int)) != 0)
-    {
         perror("Error TCP_NODELAY\n");
-    }
 
     // Filling server information
     servaddr.sin_family = AF_INET;         // IPv4
@@ -160,10 +158,6 @@ void create_bind_listen_tcp_client()
 
 int tcp_client_accept()
 {
-    // set tcp socket to non-blocking mode
-    flags = fcntl(socket_desc, F_GETFL, 0);
-    fcntl(socket_desc, F_SETFL, flags | O_NONBLOCK);
-
     /*  Accept an incoming connection from one of the clients */
     client_size = sizeof(client_addr);
     client_sock = accept(socket_desc, (struct sockaddr *)&client_addr, &client_size);
@@ -171,11 +165,10 @@ int tcp_client_accept()
     if (client_sock < 0)
         return -1;
 
+    // Disable Nagle algorithm
     int flag = 1;
     if (setsockopt(client_sock, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(int)) != 0)
-    {
         perror("Error TCP_NODELAY\n");
-    }
 
     char id_client[11];
     /* Receive message from clients. Note that we use client_sock, not socket_desc */
@@ -189,6 +182,7 @@ int tcp_client_accept()
 
     id_client[size_id_client] = '\0';
 
+    // checks if someone is already connected with this ID
     for (int i = 0; i < tcp_clients_count; i++)
         if (strcmp(tcp_clients[i].id_client, id_client) == 0)
         {
@@ -199,19 +193,21 @@ int tcp_client_accept()
 
     printf("New client %s connected from %s:%i.\n", id_client, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
+    // add client to vector
     strcpy(tcp_clients[tcp_clients_count].id_client, id_client);
     tcp_clients[tcp_clients_count].fd = client_sock;
     tcp_clients_count++;
 
+    // find the topics the client is subscribed to
     for (int t = 0; t < topics_count; t++)
         for (int s = 0; s < topics[t].subscribers_count; s++)
             if (strcmp(topics[t].subscribers[s].id_client, id_client) == 0)
             {
-                topics[t].subscribers[s].active = 1;
-                topics[t].subscribers[s].fd = client_sock;
+                topics[t].subscribers[s].active = 1;       // client is now active
+                topics[t].subscribers[s].fd = client_sock; // update fd
 
                 if (topics[t].subscribers[s].sf == 0)
-                    topics[t].subscribers[s].sent = topics[t].list_count;
+                    topics[t].subscribers[s].sent = topics[t].list_count; // update index
             }
 
     return client_sock;
@@ -231,6 +227,7 @@ void add_message_to_topic(msg message)
     topics_count++;
 }
 
+// function to print topics (for debugging)
 void print_only_topics()
 {
     for (int i = 0; i < topics_count; i++)
@@ -242,6 +239,7 @@ void print_only_topics()
     }
 }
 
+// function to print tcp_clients (for debugging)
 void print_tcp_clients()
 {
     for (int i = 0; i < tcp_clients_count; i++)
@@ -250,6 +248,7 @@ void print_tcp_clients()
     printf("\n");
 }
 
+// function to print topics and subscribers (for debugging)
 void print_topics()
 {
     for (int i = 0; i < topics_count; i++)
@@ -266,15 +265,15 @@ void send_messages()
     for (int t = 0; t < topics_count; t++)
         for (int s = 0; s < topics[t].subscribers_count; s++)
         {
-            if (topics[t].subscribers[s].active == 1)
+            if (topics[t].subscribers[s].active == 1) // check if client is connect
             {
-                if (topics[t].list_count > topics[t].subscribers[s].sent)
+                if (topics[t].list_count > topics[t].subscribers[s].sent) // check if there are any messages to send
                 {
                     for (int mess = topics[t].subscribers[s].sent; mess < topics[t].list_count; mess++)
                     {
                         msg m = topics[t].list[mess];
 
-                        int size_to_send = sizeof(int) + sizeof(struct sockaddr) + 51 + m.size;
+                        int size_to_send = sizeof(int) + sizeof(struct sockaddr) + 51 + m.size; // compute size of the data
 
                         if (send(topics[t].subscribers[s].fd, &size_to_send, sizeof(int), 0) < 0)
                         {
@@ -289,7 +288,7 @@ void send_messages()
                         }
                     }
 
-                    topics[t].subscribers[s].sent = topics[t].list_count;
+                    topics[t].subscribers[s].sent = topics[t].list_count; // update last message sent index
                 }
             }
         }
@@ -303,6 +302,7 @@ void subscribe(char *p, int fd)
 
         if (p != NULL)
         {
+            // find client ID
             char id[11];
             for (int i = 0; i < tcp_clients_count; i++)
                 if (tcp_clients[i].fd == fd)
@@ -312,25 +312,26 @@ void subscribe(char *p, int fd)
                 }
 
             for (int t = 0; t < topics_count; t++)
-                if (strcmp(topics[t].topic, p) == 0)
+                if (strcmp(topics[t].topic, p) == 0) // find topic
                 {
+                    // check if client is already subscribed
                     for (int s = 0; s < topics[t].subscribers_count; s++)
                         if (strcmp(topics[t].subscribers[s].id_client, id) == 0)
                         {
-                            topics[t].subscribers[s].fd = fd;
+                            topics[t].subscribers[s].fd = fd; // update fd
                             return;
                         }
 
+                    // add subscriber
                     topics[t].subscribers[topics[t].subscribers_count].fd = fd;
                     topics[t].subscribers[topics[t].subscribers_count].active = 1;
 
                     strcpy(topics[t].subscribers[topics[t].subscribers_count].id_client, id);
 
+                    // add sf option
                     p = strtok(NULL, " ");
                     if (p != NULL)
-                    {
                         topics[t].subscribers[topics[t].subscribers_count].sf = p[0] - '0';
-                    }
 
                     topics[t].subscribers[topics[t].subscribers_count].sent = topics[t].list_count;
 
@@ -338,6 +339,7 @@ void subscribe(char *p, int fd)
                     return;
                 }
 
+            // topic doesn't exist yet => add topic and subscribe
             strcpy(topics[topics_count].topic, p);
             topics[topics_count].subscribers[0].fd = fd;
             topics[topics_count].subscribers[0].active = 1;
@@ -362,11 +364,12 @@ void unsubscribe(char *p, int fd)
     if (p != NULL)
     {
         for (int t = 0; t < topics_count; t++)
-            if (strcmp(topics[t].topic, p) == 0)
+            if (strcmp(topics[t].topic, p) == 0) // find topic
             {
                 for (int s = 0; s < topics[t].subscribers_count; s++)
                     if (topics[t].subscribers[s].fd == fd)
                     {
+                        // remove subscriber from list
                         for (int x = s; x < topics[t].subscribers_count - 1; x++)
                             topics[t].subscribers[x] = topics[t].subscribers[x + 1];
 
@@ -412,13 +415,13 @@ int main(int argc, char const *argv[])
 
         poll(pfds, nfds, -1);
 
-        if ((pfds[0].revents & POLLIN) != 0)
+        if ((pfds[0].revents & POLLIN) != 0) // stdin
         {
             if (fgets(input, 100, stdin))
             {
                 if (strcmp(input, "exit\n") == 0)
                 {
-                    sent_exit_to_all();
+                    sent_exit_to_all(); // close server
                     return 0;
                 }
             }
@@ -431,10 +434,12 @@ int main(int argc, char const *argv[])
                              MSG_WAITALL, (struct sockaddr *)&cliaddr,
                              &len);
 
+            // received a message
             if (n != -1)
             {
                 buffer[n] = '\n';
 
+                // declare a new message
                 msg message;
                 memset(&message, 0, sizeof(message));
 
@@ -463,18 +468,22 @@ int main(int argc, char const *argv[])
         }
         else
         {
+            // received input from a tcp client
             for (int i = 3; i < nfds; i++)
                 if ((pfds[i].revents & POLLIN) != 0)
                 {
                     int n = recv(pfds[i].fd, buffer, 100, 0);
 
+                    // client disconnected
                     if (n == 0)
                     {
+                        // set client active = 0 in all topic structures
                         for (int t = 0; t < topics_count; t++)
                             for (int s = 0; s < topics[t].subscribers_count; s++)
                                 if (topics[t].subscribers[s].fd == pfds[i].fd)
                                     topics[t].subscribers[s].active = 0;
 
+                        // find client index in tcp_clients
                         int index = -1;
 
                         for (int j = 0; j < tcp_clients_count; j++)
@@ -484,6 +493,7 @@ int main(int argc, char const *argv[])
                                 break;
                             }
 
+                        // remove client from tcp_clients
                         if (index != -1)
                         {
                             printf("Client %s disconnected.\n", tcp_clients[index].id_client);
@@ -493,12 +503,15 @@ int main(int argc, char const *argv[])
                             tcp_clients_count--;
                         }
 
+                        // remove client from poll
                         for (int j = i; j < nfds; j++)
                             pfds[j] = pfds[j + 1];
 
                         nfds--;
                         break;
                     }
+
+                    // received a command
 
                     buffer[n] = '\n';
                     char *p = strtok(buffer, " ");
@@ -510,9 +523,6 @@ int main(int argc, char const *argv[])
                 }
         }
 
-        if (tcp_clients_count > 0 && msg_count > 0)
-        {
-            send_messages();
-        }
+        send_messages();
     }
 }
